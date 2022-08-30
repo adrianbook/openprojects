@@ -10,14 +10,16 @@ function openProjectsInDirectory {
 
 
     foreach ($c in $children){
-        $fetchHead = "kuk"
+        $propVal
         $possiblePath = ($c.FullName+'\.git\FETCH_HEAD')
         if(Test-Path $possiblePath){
-            $fetchHead = get-content $possiblePath  | select -First 1 | Select-String -Pattern "([^/]+)$" | select {$_.matches[0].tostring()} 
+            $fetchHead = (get-content $possiblePath  | select -First 1 | Select-String -Pattern "([^/]+)$").Matches[0].Value
+            $propVal = "{0}:    {1}" -f $c.Name, $fetchHead 
+        } else {
+            $propVal = $c.Name
         }
         
-        
-        
+        Add-Member -InputObject $c -NotePropertyName DisplayName -NotePropertyValue $propVal
     }
     
     
@@ -33,7 +35,7 @@ function openProjectsInDirectory {
     for ($i = 0; $i -lt $children.Length; $i++ ){
         $child = $children[$i]
         if ((Get-ChildItem -Path $child.FullName -Hidden) -ne $null) {
-            $displayChildren.Add([char] ($i + 97), $child.Name)
+            $displayChildren.Add([char] ($i + 97), $child.DisplayName)
             $child.isGit
         }
     }
