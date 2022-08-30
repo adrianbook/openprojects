@@ -10,11 +10,14 @@ function openProjectsInDirectory {
 
 
     foreach ($c in $children){
-        $isGit = Get-ChildItem -Path $c.FullName -Hidden | where {}
-        #$isGit
-        if((Get-ChildItem -Path ($c.FullName+'\*' ) -Hidden -Include .git) -ne $null){
-            "bajsi"
+        $fetchHead = "kuk"
+        $possiblePath = ($c.FullName+'\.git\FETCH_HEAD')
+        if(Test-Path $possiblePath){
+            $fetchHead = get-content $possiblePath  | select -First 1 | Select-String -Pattern "([^/]+)$" | select {$_.matches[0].tostring()} 
         }
+        
+        
+        
     }
     
     
