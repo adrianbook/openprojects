@@ -3,14 +3,13 @@ function openProjectsInDirectory {
 
     param([string]$Path)
 
-    $FindOutUpstream = {$this.Name -match "^(E|e)"}
 
     $children = get-childitem -Path $Path -Directory | where {(Get-ChildItem -Path $_.FullName -Hidden) -ne $null} 
 
 
 
     foreach ($c in $children){
-        $propVal
+        
         $possiblePath = ($c.FullName+'\.git\FETCH_HEAD')
         if(Test-Path $possiblePath){
             $fetchHead = (get-content $possiblePath  | select -First 1 | Select-String -Pattern "([^/]+)$").Matches[0].Value
@@ -18,7 +17,6 @@ function openProjectsInDirectory {
         } else {
             $propVal = $c.Name
         }
-        
         Add-Member -InputObject $c -NotePropertyName DisplayName -NotePropertyValue $propVal
     }
     
@@ -26,17 +24,11 @@ function openProjectsInDirectory {
 
 
     $displayChildren = [ordered]@{}
-    foreach ($c in $children) {
-        if ($c.isGit){
-            $out = ($c.Name+' is git!')
-        }
-    }
 
     for ($i = 0; $i -lt $children.Length; $i++ ){
         $child = $children[$i]
         if ((Get-ChildItem -Path $child.FullName -Hidden) -ne $null) {
-            $displayChildren.Add([char] ($i + 97), $child.DisplayName)
-            $child.isGit
+            $displayChildren.Add([char] ($i + 97), $child)
         }
     }
 
@@ -44,11 +36,11 @@ function openProjectsInDirectory {
 
     "PRESS:"
     foreach ($k in $displayChildren.Keys) {
-            '  '+$k +" for " +  $displayChildren[$k]
+            '  '+$k +" for " +  $displayChildren[$k].DisplayName
     }
 
     $keypress = $Host.UI.RawUI.ReadKey('IncludeKeyDown, NoEcho').Character
-    $subpath = $displayChildren[[char]$keypress]
+    $subpath = $displayChildren[[char]$keypress].Name
     
     if ($subpath -eq $null) {
         cd $Path
