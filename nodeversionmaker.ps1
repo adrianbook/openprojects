@@ -1,0 +1,1 @@
+ New-Item -Path . -ItemType file -Name nodeversionmaker.ps1 -Value (type .\README.md -Head 10 | findstr node| Select-String -Pattern '(\d+\.\d+\.\d+)\s*$').Matches.Groups[1].Value > nodeversion.txt
