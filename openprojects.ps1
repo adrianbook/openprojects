@@ -3,20 +3,46 @@ function openProjectsInDirectory {
 
     param([string]$Path)
 
-
     $children = get-childitem -Path $Path -Directory | where {(Get-ChildItem -Path $_.FullName -Hidden) -ne $null} 
 
+    $paddingBase = 0
+
+    foreach ($c in $children){
+        if ($c.Name -match "%20"){
+            $newName = $c.Name.Replace('%20', '')
+            Move-Item -Path $c.FullName -Destination ($Path+'\'+$newName)
+        }
+        if ($c.Name.Length -gt $paddingBase){
+            $paddingBase = $c.Name.Length
+        }
+    }
+    $paddingBase += 3
+
+    $children = get-childitem -Path $Path -Directory | where {(Get-ChildItem -Path $_.FullName -Hidden) -ne $null} 
 
 
     foreach ($c in $children){
         
         $possiblePath = ($c.FullName+'\.git\FETCH_HEAD')
         if(Test-Path $possiblePath){
-            $fetchHead = (get-content $possiblePath  | select -First 1 | Select-String -Pattern "([^/]+)$").Matches[0].Value
-            $propVal = "{0}:    {1}" -f $c.Name, $fetchHead 
+            $fetchHead = (get-content $possiblePath  | select -First 1 | Select-String -Pattern "/([^/])+/_git/([^/])+$").Matches.Groups #| select {$_.Captures}   
+           
+            $st = ""
+            foreach ($row in $fetchHead[1].Captures){
+                $st += $row.Value
+            }
+            $st += ': '
+            foreach ($row in $fetchHead[2].Captures){
+                $st += $row.Value
+            }
+            $st = $st.Replace('%20', ' ')
+            $padding = " " * ($paddingBase - $c.Name.Length)
+
+            $propVal = "{0}{1}{2}" -f $c.Name,$padding, $st 
         } else {
             $propVal = $c.Name
         }
+
         Add-Member -InputObject $c -NotePropertyName DisplayName -NotePropertyValue $propVal
     }
     
@@ -34,7 +60,7 @@ function openProjectsInDirectory {
 
    
 
-    "PRESS:"
+    "PRESS   PROJECT{0}REMOTE" -f (" " * ($paddingBase - 7))
     foreach ($k in $displayChildren.Keys) {
             '  '+$k +" for " +  $displayChildren[$k].DisplayName
     }
@@ -68,7 +94,21 @@ function openProjectsInDirectory {
             git branch -m main
         }
     }
-    
+
+    $declaredNodeVersion = Get-ChildItem -Path .\* -File -Recurse -Depth 2 -Filter 'nodeversion.txt'
+    if($declaredNodeVersion -ne $null){
+        $nodeMajorVersionRegex = '(\d+)\.\d+\.\d+\s*$'
+        $currentNodeVersion = node -v 
+        $currentNodeMajorVersion = ($currentNodeVersion | Select-String -Pattern $nodeMajorVersionRegex).Matches.Groups[1].Value
+
+        $buildNodeVersion = cat $declaredNodeVersion.FullName 
+        $buildNodeMajorVersion = ($buildNodeVersion | Select-String -Pattern $nodeMajorVersionRegex).Matches.Groups[1].Value
+
+        if ($buildNodeVersion -ne $null -and $buildNodeMajorVersion -ne $currentNodeMajorVersion ){
+            Write-error "WARNING: project optimized for node version: $buildNodeVersion Currently running node version: $currentNodeVersion"
+        }
+    }
+
     $VS = $null
     $sln = Get-ChildItem -Path .\* -Include *.sln
     if ($sln.Length -ne 0){
