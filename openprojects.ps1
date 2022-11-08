@@ -107,6 +107,10 @@ function openProjectsInDirectory {
         if ($buildNodeVersion -ne $null -and $buildNodeMajorVersion -ne $currentNodeMajorVersion ){
             Write-error "WARNING: project optimized for node version: $buildNodeVersion Currently running node version: $currentNodeVersion"
         }
+        "`nChange nodeversion? (y/n)"
+        if (($Host.UI.RawUI.ReadKey('IncludeKeyDown, NoEcho').Character) -eq [char]'y'){
+            nvm use $buildNodeVersion
+        }
     }
 
     $VS = $null
@@ -118,28 +122,14 @@ function openProjectsInDirectory {
     }
 
     $VSCode = $null
-    $nodeadress = $null
-    $isnode = (Get-ChildItem -File -Filter package.json) -ne $null
-    if ($isnode) {
-        #code .
-        $nodeadress = '.'
-        "`nOpen Visual Studio Code? (y/n)"
-        $VSCode = ($Host.UI.RawUI.ReadKey('IncludeKeyDown, NoEcho').Character) -eq [char]'y'
-        
-    }
-    
+    $nodeadress = ((Get-ChildItem -File -Filter package.json).Directory).FullName
     if ($nodeadress -eq $null){
-        $childdirs = (Get-ChildItem -Path .\*  -Exclude node_modules).FullName
-       # $childdirs
-        foreach ($dir in $childdirs){
-            $nodeadress = ((Get-ChildItem -Path $dir -File -Filter package.json ).Directory).FullName
-            if ($nodeadress -ne $null) {
-                #code $nodeadress
-                "`nOpen Visual Studio Code? (y/n)"
-                $VSCode = ($Host.UI.RawUI.ReadKey('IncludeKeyDown, NoEcho').Character) -eq [char]'y'
-                break
-            }
-        }
+        $nodeadress = ((Get-ChildItem -Recurse -Depth 2 -File -Filter package.json).Directory).FullName
+    }
+
+    if ($nodeadress -ne $null){
+       "`nOpen Visual Studio Code? (y/n)"
+        $VSCode = ($Host.UI.RawUI.ReadKey('IncludeKeyDown, NoEcho').Character) -eq [char]'y'    
     }
 
     if ($VS){
