@@ -74,12 +74,92 @@ function openProjectsInDirectory {
     }
     cls
     $fullpath = "{0}\{1}" -f $Path, $subpath
-    cd $fullpath
-    ($fullpath)+">`n"
-    if ((Get-ChildItem -Path .\* -Hidden -Filter .git) -ne $null){
+
+    OpenProjectInChosenDirectory($fullpath)
+}
+
+
+function OpenProjectInChosenDirectory
+{
+    param([string]$Path)
+    cd $Path
+    ($Path)+"`n>`n"
+
+    checkGitStatus
+
+    checkNodeVersion
+
+
+    $VSPath = queryOpenVisualStudio 
+    $openVS = $VSPath -ne $null
+
+    $nodeadress = queryOpenVSCode
+    $openVSCode = $nodeadress -ne $null
+
+    if ($openVS){
+        ii $VSPath
+    }
+    if ($openVSCode){
+        code $nodeadress
+    }
+
+}
+
+
+function queryOpenVSCode
+{
+    $nodeadress = $null
+    for ($i = 0; $i -lt 4; $i++)
+    {
+        $nodeadress =((Get-ChildItem -Recurse -Depth $i -File -Filter package.json).Directory).FullName
+        if ($nodeadress -ne $null)
+        {
+            break
+        }
+    }
+
+    if ($nodeadress -ne $null){
+       Write-Host "`nOpen Visual Studio Code? (y/n)"
+        if (($Host.UI.RawUI.ReadKey('IncludeKeyDown, NoEcho').Character) -eq [char]'y')
+        {
+            return $nodeadress
+        }
+    }
+}
+
+function queryOpenVisualStudio
+{
+    $VSPath = $null
+    $sln = Get-ChildItem -Path .\*  -File  -Recurse -Depth 3 -Filter *.sln
+    if ($sln.Length -eq 1 -or ($sln.Length -gt 1 -and $sln[1] -eq $null)){
+       # ii $sln
+        Write-Host "`nOpen Visual Studio? (y/n)"
+        $openVS = ($Host.UI.RawUI.ReadKey('IncludeKeyDown, NoEcho').Character) -eq [char]'y'
+        if ($openVS)
+        {
+            $VSPath = $sln.FullName
+            return $VSPath
+        }
+    }
+    elseif ($sln.Length -gt 1){
+        for ($i = 0; $i -lt $sln.Length; $i++){
+            "`nOpen "+$sln[$i].Name.Split('.')[0]+"? (y/n)"
+            $openVS = ($Host.UI.RawUI.ReadKey('IncludeKeyDown, NoEcho').Character) -eq [char]'y'
+            $VSPath = $sln[$i].FullName
+            if ($openVS) {
+                return $VSPath
+            }
+        }
+    }
+}
+
+
+function checkGitStatus
+{
+     if ((Get-ChildItem -Path .\* -Hidden -Filter .git) -ne $null){
         $gitmessage = git status
         $gitmessage
-        if ($gitmessage -match "^On branch (main|master)"){
+        if ($gitmessage -match "^On branch ([m|M]ain|[m|M]aster)"){
             "`n`nIn main branch. Create new branch to work in? (y/n)"
             if(($Host.UI.RawUI.ReadKey('IncludeKeyDown, NoEcho').Character) -eq [char]'y'){
                 $branchname = Read-Host "Enter new branch name"
@@ -94,50 +174,45 @@ function openProjectsInDirectory {
             git branch -m main
         }
     }
+}
 
-    $declaredNodeVersion = Get-ChildItem -Path .\* -File -Recurse -Depth 2 -Filter 'nodeversion.txt'
-    if($declaredNodeVersion -ne $null){
+function checkNodeVersion
+{
+    $packageJsonPath = $null
+    for ($i = 0;$i -lt 4; $i++)
+    {
+        $packageJsonPath = Get-ChildItem -Path .\* -File -Recurse -Depth $i -Filter 'package.json'
+        if ($packageJsonPath -ne $null)
+        {
+            break
+        }
+    }
+
+    $packageJson = cat $packageJsonPath.FullName | ConvertFrom-Json
+
+    if ($packageJson.engines -eq $null -or $packageJson.engines.node -eq $null)
+    {
+        return
+    }
+    
+
+    $buildNodeVersion = $packageJson.engines.node
+    $declaredNodeVersion
+    if($buildNodeVersion -ne $null){
         $nodeMajorVersionRegex = '(\d+)\.\d+\.\d+\s*$'
         $currentNodeVersion = node -v 
         $currentNodeMajorVersion = ($currentNodeVersion | Select-String -Pattern $nodeMajorVersionRegex).Matches.Groups[1].Value
-
-        $buildNodeVersion = cat $declaredNodeVersion.FullName 
+     
         $buildNodeMajorVersion = ($buildNodeVersion | Select-String -Pattern $nodeMajorVersionRegex).Matches.Groups[1].Value
-
-        if ($buildNodeVersion -ne $null -and $buildNodeMajorVersion -ne $currentNodeMajorVersion ){
+  
+        if ($buildNodeMajorVersion -ne $currentNodeMajorVersion ){
             Write-error "WARNING: project optimized for node version: $buildNodeVersion Currently running node version: $currentNodeVersion"
+     
+            "`nChange nodeversion? (y/n)"
+            if (($Host.UI.RawUI.ReadKey('IncludeKeyDown, NoEcho').Character) -eq [char]'y'){
+                nvm use $buildNodeVersion
+            }
         }
-        "`nChange nodeversion? (y/n)"
-        if (($Host.UI.RawUI.ReadKey('IncludeKeyDown, NoEcho').Character) -eq [char]'y'){
-            nvm use $buildNodeVersion
-        }
-    }
-
-    $VS = $null
-    $sln = Get-ChildItem -Path .\* -Include *.sln
-    if ($sln.Length -ne 0){
-       # ii $sln
-        "`nOpen Visual Studio? (y/n)"
-        $VS = ($Host.UI.RawUI.ReadKey('IncludeKeyDown, NoEcho').Character) -eq [char]'y'
-    }
-
-    $VSCode = $null
-    $nodeadress = ((Get-ChildItem -File -Filter package.json).Directory).FullName
-    if ($nodeadress -eq $null){
-        $nodeadress = ((Get-ChildItem -Recurse -Depth 2 -File -Filter package.json).Directory).FullName
-    }
-
-    if ($nodeadress -ne $null){
-       "`nOpen Visual Studio Code? (y/n)"
-        $VSCode = ($Host.UI.RawUI.ReadKey('IncludeKeyDown, NoEcho').Character) -eq [char]'y'    
-    }
-
-    if ($VS){
-        ii $sln
-    }
-    if ($VSCode){
-        code $nodeadress
     }
 }
-
 #Export-ModuleMember -Function *
