@@ -3,6 +3,23 @@ function openProjectsInDirectory {
 
     param([string]$Path)
 
+
+    $dirPath = DisplayProjectDirectories $Path
+
+    if ($dirPath -eq $null)
+    {
+        cd $Path
+    }
+    else 
+    {
+        OpenProjectInChosenDirectory $dirPath
+    }
+}
+
+function DisplayProjectDirectories
+{
+    param([string]$Path)
+
     $children = get-childitem -Path $Path -Directory | where {(Get-ChildItem -Path $_.FullName -Hidden) -ne $null} 
 
     $paddingBase = 0
@@ -19,26 +36,42 @@ function openProjectsInDirectory {
     $paddingBase += 3
 
     $children = get-childitem -Path $Path -Directory | where {(Get-ChildItem -Path $_.FullName -Hidden) -ne $null} 
-
+    # "url\s+=\s+https?://(?:github\.com/([^/]+)/((?:.(?!git\s))+)|[^@]+@dev\.azure\.com/([^/]+)/([^/]+)/_git/(\w+))"
 
     foreach ($c in $children){
         
-        $possiblePath = ($c.FullName+'\.git\FETCH_HEAD')
-        if(Test-Path $possiblePath){
-            $fetchHead = (get-content $possiblePath  | select -First 1 | Select-String -Pattern "/([^/])+/_git/([^/])+$").Matches.Groups #| select {$_.Captures}   
-           
-            $st = ""
-            foreach ($row in $fetchHead[1].Captures){
-                $st += $row.Value
-            }
-            $st += ': '
-            foreach ($row in $fetchHead[2].Captures){
-                $st += $row.Value
-            }
-            $st = $st.Replace('%20', ' ')
-            $padding = " " * ($paddingBase - $c.Name.Length)
+        $possiblePath = ($c.FullName+'\.git\config')
 
-            $propVal = "{0}{1}{2}" -f $c.Name,$padding, $st 
+        if(Test-Path $possiblePath){
+        # hitta regex som också fångar upp github
+            $fetchHead = (get-content $possiblePath | Select-String -Pattern "^\s*url\s+=\s+https?://(?:github\.com/([^/]+)/(\S+)\.git|[^@]+@dev\.azure\.com/([^/]+)/([^/]+)/_git/(\w+)|([^\.]+)\.visualstudio.com/([^/]+)/_git/([^/]+))").Matches.Groups.Captures #| select {$_.Captures}   
+
+            if ($fetchHead -ne $null -and $fetchHead.Count -gt 0){
+                $st = ""
+                for ($i = 1; $i -lt $fetchHead.Count; $i++){
+                    $st += $fetchHead[$i]
+                    if ($i -ne $fetchHead.Count - 1){
+                        $st += ":"
+                    }
+                }
+
+                $st = $st.Replace('%20', ' ')
+                $padding = " " * ($paddingBase - $c.Name.Length)
+
+                $propVal = "{0}{1}{2}" -f $c.Name,$padding, $st 
+            }
+            else {
+                $remote_status = (get-content $possiblePath | Select-String -Pattern "url" -Quiet)
+                if ($remote_status){
+                    $remote_status = "git remote not parsed"
+                }
+                else {
+                    $remote_status = "local repository"
+                }
+
+                $padding = " " * ($paddingBase - $c.Name.Length)
+                $propVal = $c.Name + $padding + $remote_status
+            }
         } else {
             $propVal = $c.Name
         }
@@ -60,46 +93,58 @@ function openProjectsInDirectory {
 
    
 
-    "PRESS   PROJECT{0}REMOTE" -f (" " * ($paddingBase - 7))
+    $header = "PRESS   PROJECT{0}REMOTE" -f (" " * ($paddingBase - 7))
+    Write-Host $header
     foreach ($k in $displayChildren.Keys) {
-            '  '+$k +" for " +  $displayChildren[$k].DisplayName
+        $row = '  '+$k +" for " +  $displayChildren[$k].DisplayName
+        Write-Host $row
     }
 
     $keypress = $Host.UI.RawUI.ReadKey('IncludeKeyDown, NoEcho').Character
-    $subpath = $displayChildren[[char]$keypress].Name
     
-    if ($subpath -eq $null) {
-        cd $Path
-        return
-    }
-    cls
-    $fullpath = "{0}\{1}" -f $Path, $subpath
+    $chosenPath = $displayChildren[[char]$keypress].FullName
 
-    OpenProjectInChosenDirectory($fullpath)
+
+    return $chosenPath
 }
 
 
 function OpenProjectInChosenDirectory
 {
     param([string]$Path)
+
+    if ($Path -eq $null)
+    {
+        return
+    }
+
+   # cls
+
     cd $Path
+    Write-Host $Path
     ($Path)+"`n>`n"
 
     checkGitStatus
 
+
     checkNodeVersion
 
 
-    $VSPath = queryOpenVisualStudio 
-    $openVS = $VSPath -ne $null
+
+    $openVS = queryOpenVisualStudio 
 
     $nodeadress = queryOpenVSCode
     $openVSCode = $nodeadress -ne $null
 
-    if ($openVS){
-        ii $VSPath
+    if ($openVS.Item1)
+    {
+        foreach ($path in $openVS.Item2)
+        {
+            ii $path
+        }
     }
-    if ($openVSCode){
+    if ($openVSCode)
+    {
         code $nodeadress
     }
 
@@ -109,13 +154,9 @@ function OpenProjectInChosenDirectory
 function queryOpenVSCode
 {
     $nodeadress = $null
-    for ($i = 0; $i -lt 4; $i++)
+    for ($i = 0; $i -lt 3 -and $nodeadress -eq $null; $i++)
     {
         $nodeadress =((Get-ChildItem -Recurse -Depth $i -File -Filter package.json).Directory).FullName
-        if ($nodeadress -ne $null)
-        {
-            break
-        }
     }
 
     if ($nodeadress -ne $null){
@@ -125,32 +166,50 @@ function queryOpenVSCode
             return $nodeadress
         }
     }
+    return $null
 }
 
 function queryOpenVisualStudio
 {
+
     $VSPath = $null
-    $sln = Get-ChildItem -Path .\*  -File  -Recurse -Depth 3 -Filter *.sln
-    if ($sln.Length -eq 1 -or ($sln.Length -gt 1 -and $sln[1] -eq $null)){
+    $sln = $null
+    for ($i = 0; $i -lt 2 -and $sln -eq $null; $i++){
+        $sln = Get-ChildItem -Path .\*  -File  -Recurse -Depth $i -Filter *.sln
+    }
+    if ($sln -eq $null){
+        return [System.Tuple]::Create($false,"no solutions in directory")
+    }
+  
+
+    if ($sln.Count -eq 1){
        # ii $sln
         Write-Host "`nOpen Visual Studio? (y/n)"
         $openVS = ($Host.UI.RawUI.ReadKey('IncludeKeyDown, NoEcho').Character) -eq [char]'y'
         if ($openVS)
         {
-            $VSPath = $sln.FullName
-            return $VSPath
+            return [System.Tuple]::Create($true,$sln.FullName)
         }
     }
-    elseif ($sln.Length -gt 1){
-        for ($i = 0; $i -lt $sln.Length; $i++){
-            "`nOpen "+$sln[$i].Name.Split('.')[0]+"? (y/n)"
+
+    elseif ($sln.Length -gt 1)
+    {
+        $paths = @()
+        for ($i = 0; $i -lt $sln.Count; $i++)
+        {
+            $projName = ($sln[$i].Name|Select-String -Pattern '(.+)\.[^\.]+$').Matches[0].Groups[1].Value 
+            $q ="`nOpen "+$projName+"? (y/n)"
+            Write-Host $q
             $openVS = ($Host.UI.RawUI.ReadKey('IncludeKeyDown, NoEcho').Character) -eq [char]'y'
-            $VSPath = $sln[$i].FullName
+
             if ($openVS) {
-                return $VSPath
+                $paths += $sln[$i].FullName
+                
             }
         }
+        return [System.Tuple]::Create($true,$paths)
     }
+    return [System.Tuple]::Create($false,”dont open visual studio”)
 }
 
 
@@ -160,14 +219,14 @@ function checkGitStatus
         $gitmessage = git status
         $gitmessage
         if ($gitmessage -match "^On branch ([m|M]ain|[m|M]aster)"){
-            "`n`nIn main branch. Create new branch to work in? (y/n)"
+            write-host  "`n`nIn main branch. Create new branch to work in? (y/n)"
             if(($Host.UI.RawUI.ReadKey('IncludeKeyDown, NoEcho').Character) -eq [char]'y'){
                 $branchname = Read-Host "Enter new branch name"
                 git switch -c $branchname
             }
         }
     } else {
-        "Not a git repo. Make it one? (y/n)"
+        write-host "Not a git repo. Make it one? (y/n)"
         if(($Host.UI.RawUI.ReadKey('IncludeKeyDown, NoEcho').Character) -eq [char]'y'){
             git init
             Start-Sleep -Seconds .2
@@ -188,13 +247,14 @@ function checkNodeVersion
         }
     }
 
-    $packageJson = cat $packageJsonPath.FullName | ConvertFrom-Json
+    if ($packageJsonPath -ne $null){
+        $packageJson = cat $packageJsonPath.FullName | ConvertFrom-Json
 
-    if ($packageJson.engines -eq $null -or $packageJson.engines.node -eq $null)
-    {
-        return
+        if ($packageJson.engines -eq $null -or $packageJson.engines.node -eq $null)
+        {
+            return
+        }
     }
-    
 
     $buildNodeVersion = $packageJson.engines.node
     $declaredNodeVersion
