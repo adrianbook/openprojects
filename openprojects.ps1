@@ -1,4 +1,5 @@
-﻿
+﻿Import-Module 'C:\Hobby\openprojects\nodeversionparser.ps1'
+
 function openProjectsInDirectory {
 
     param([string]$Path)
@@ -134,6 +135,10 @@ function OpenProjectInChosenDirectory
     $openVS = queryOpenVisualStudio 
 
     $nodeadress = queryOpenVSCode
+
+    $androidAddress = queryOpenAndroidStudio
+    
+    $openAndroid = $androidAddress -ne $null
     $openVSCode = $nodeadress -ne $null
 
     if ($openVS.Item1)
@@ -147,7 +152,10 @@ function OpenProjectInChosenDirectory
     {
         code $nodeadress
     }
-
+    if ($openAndroid)
+    {
+        & $env:ANDROID_STUDIO_EXECUTABLE $androidAddress
+    }
 }
 
 
@@ -168,6 +176,29 @@ function queryOpenVSCode
     }
     return $null
 }
+
+function queryOpenAndroidStudio
+{
+    $androidfolder
+    for ($i = 0; $i -lt 3 -and $androidfolder -eq $null; $i++)
+    {
+        $appfolder = (Get-ChildItem -Recurse -Depth $i -Directory -Filter app)
+        if ($appfolder -ne $null -and (Test-Path "$($appfolder.FullName)\src\main\AndroidManifest.xml"))
+        {
+            $androidfolder = $appfolder.Parent.FullName
+        }
+    }
+    if ($androidfolder -ne $null)
+    {
+        Write-Host "`nOpen Android Studio? (y/n)"
+        if (($Host.UI.RawUI.ReadKey('IncludeKeyDown, NoEcho').Character) -eq [char]'y')
+        {
+            return $androidfolder
+        }
+    }
+    return $null
+}
+
 
 function queryOpenVisualStudio
 {
@@ -259,18 +290,23 @@ function checkNodeVersion
     $buildNodeVersion = $packageJson.engines.node
     $declaredNodeVersion
     if($buildNodeVersion -ne $null){
-        $nodeMajorVersionRegex = '(\d+)\.\d+\.\d+\s*$'
         $currentNodeVersion = node -v 
-        $currentNodeMajorVersion = ($currentNodeVersion | Select-String -Pattern $nodeMajorVersionRegex).Matches.Groups[1].Value
-     
-        $buildNodeMajorVersion = ($buildNodeVersion | Select-String -Pattern $nodeMajorVersionRegex).Matches.Groups[1].Value
+       
+
+        $parseResult = ParseNodeVersion -packageJsonEnginesString $buildNodeVersion -currentNodeVersion $currentNodeVersion
   
-        if ($buildNodeMajorVersion -ne $currentNodeMajorVersion ){
-            Write-error "WARNING: project optimized for node version: $buildNodeVersion Currently running node version: $currentNodeVersion"
-     
-            "`nChange nodeversion? (y/n)"
-            if (($Host.UI.RawUI.ReadKey('IncludeKeyDown, NoEcho').Character) -eq [char]'y'){
-                nvm use $buildNodeVersion
+        if (-not $parseResult.Match){
+            
+            $parseResult.Message
+
+            if ($parseResult.NeededVersion -ne $null){
+                "`nChange nodeversion? (y/n)"
+                if (($Host.UI.RawUI.ReadKey('IncludeKeyDown, NoEcho').Character) -eq [char]'y'){
+                    nvm use $parseResult.NeededVersion
+                }
+            } elseif (-not $parseResult.Match){
+                $message = "Failed to parse node version:" + $parseResult.Message
+                Write-Error $message
             }
         }
     }
